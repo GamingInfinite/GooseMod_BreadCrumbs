@@ -1,103 +1,121 @@
-﻿using System.Drawing;
+using GooseShared;
+using SamEngine;
+using System.Drawing;
 using System.IO;
 using System.Media;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
-// 1. Added the "GooseModdingAPI" project as a reference.
-// 2. Compile this.
-// 3. Create a folder with this DLL in the root, and *no GooseModdingAPI DLL*
-using GooseShared;
-using SamEngine;
+using System;
 
-namespace BreadCrumbs
+public class ModMain : IMod
 {
-    public class ModEntryPoint : IMod
-    {
-        [DllImport("user32.dll")]
-        public static extern short GetAsyncKeyState(Keys vKey);
+	private bool feedOut;
 
-        bool feedOut = false;
-        Vector2 targetVector;
-        Point pointOfCrumbs;
+	private Vector2 targetVector;
 
-        string SoundFileName;
-        Image theImage;
+	private Point pointOfCrumbs;
 
-        int tickCount;
-        // Gets called automatically, passes in a class that contains pointers to
-        // useful functions we need to interface with the goose.
-        void IMod.Init()
-        {
-            string assemblyFolder = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            string PicFileName = Path.Combine(assemblyFolder, "crumbs.png");
-            SoundFileName = Path.Combine(assemblyFolder, "nom.wav");
-            theImage = Image.FromFile(PicFileName);
+	private string SoundFileName;
 
-            // Subscribe to whatever events we want
-            InjectionPoints.PostTickEvent += PostTick;
-            InjectionPoints.PreRenderEvent += PreRenderEvent;
-        }
+	private Image theImage;
 
-        private void PreRenderEvent(GooseEntity goose, Graphics g)
-        {
-            if (feedOut)
-            {
-                g.DrawImage(theImage, pointOfCrumbs.X, pointOfCrumbs.Y, 80, 80);
-            }
-            
-        }
+	private int tickCount;
 
-        public void PostTick(GooseEntity g)
-        {
+	private Config config = new Config();
 
-            // Do whatever you want here.
-            if ((GetAsyncKeyState(Keys.RShiftKey) != 0))
-            {
-                if (!feedOut)
-                {
-                    feedOut = true;
-                    targetVector = new Vector2(Input.mouseX-20, Input.mouseY+20);
-                    pointOfCrumbs = new Point(Cursor.Position.X - 42, Cursor.Position.Y - 42);
+	KeysConverter kc = new KeysConverter();
 
-                    API.Goose.playHonckSound();
-                    g.targetPos = targetVector;
-                    API.Goose.setTaskRoaming(g);
-                    API.Goose.setSpeed(g, GooseEntity.SpeedTiers.Charge);
-                }
-            }
-            
-            if (feedOut)
-            {
-                if (API.Goose.isGooseAtTarget(g,10))
-                {
-                    tickCount += 1;
-                    g.direction = -20;
-                    API.Goose.setSpeed(g, GooseEntity.SpeedTiers.Walk);
-                    API.Goose.setTaskRoaming(g);
+	[DllImport("user32.dll")]
+	public static extern short GetAsyncKeyState(Keys vKey);
 
-                    if (tickCount == 240)
-                    {
-                        new Thread(() => {
-                            using (SoundPlayer player = new SoundPlayer(SoundFileName))
-                            {
-                                player.PlaySync();
-                            }
-                        }).Start(); 
+	private void checkConfig() {
+		string path = "Assets\\Mods\\BreadCrumbs\\Config.txt";
 
-                        feedOut = false;
-                        tickCount = 0;
-                        g.targetPos = targetVector + new Vector2(20, -20);
-                    }   
-                }
-                else
-                {
-                    API.Goose.setTaskRoaming(g);
-                    API.Goose.setSpeed(g, GooseEntity.SpeedTiers.Charge);
-                    g.targetPos = targetVector;
-                }
-            }
-        }
-    }
+		try {
+			using (TextReader textReader = new StreamReader(new FileStream(path, FileMode.Open))) {
+				string text;
+				while ((text = textReader.ReadLine()) != null) {
+					if (text.StartsWith("KeyName")) {
+						int num = text.IndexOf("=") + 1;
+						string keybind = text.Substring(num, text.Length - num).Trim();
+						config.KeyName = keybind; 
+					}
+				}
+			}
+		}
+		catch
+		{
+			using (StreamWriter streamWriter = File.Exists(path) ? File.AppendText(path) : File.CreateText(path))
+			{
+				MessageBox.Show("Config.txt for BreadCrumbs was not found.\nMaking config file please restart", "Mod Error", MessageBoxButtons.OK, MessageBoxIcon.Hand);
+				streamWriter.WriteLine("KeyName=RShiftKey");
+			}
+		}
+	}
+
+	void IMod.Init()
+	{
+		string directoryName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+		string filename = Path.Combine(directoryName, "crumbs.png");
+		SoundFileName = Path.Combine(directoryName, "nom.wav");
+		theImage = Image.FromFile(filename);
+		checkConfig();
+		InjectionPoints.PostTickEvent += new InjectionPoints.PostTickEventHandler(this.PostTick);
+		InjectionPoints.PreRenderEvent += new InjectionPoints.PreRenderEventHandler(this.PreRenderEvent);
+	}
+
+	private void PreRenderEvent(GooseEntity goose, Graphics g)
+	{
+		if (feedOut)
+		{
+			g.DrawImage(theImage, pointOfCrumbs.X, pointOfCrumbs.Y, 80, 80);
+		}
+	}
+
+	public void PostTick(GooseEntity g)
+	{
+		
+		if (GetAsyncKeyState((Keys)Enum.Parse(typeof(Keys), config.KeyName, true)) != 0 && !feedOut)
+		{
+			feedOut = true;
+			targetVector = new Vector2((float)(Input.mouseX - 20), (float)(Input.mouseY + 20));
+			pointOfCrumbs = new Point(Cursor.Position.X - 42, Cursor.Position.Y - 42);
+			API.Goose.playHonckSound.Invoke();
+			g.targetPos = targetVector;
+			API.Goose.setTaskRoaming.Invoke(g);
+			API.Goose.setSpeed.Invoke(g, (GooseEntity.SpeedTiers)2);
+		}
+		if (!feedOut)
+		{
+			return;
+		}
+		if (API.Goose.isGooseAtTarget.Invoke(g, 10f))
+		{
+			tickCount++;
+			g.direction = -20f;
+			API.Goose.setSpeed.Invoke(g, (GooseEntity.SpeedTiers)0);
+			API.Goose.setTaskRoaming.Invoke(g);
+			if (tickCount == 240)
+			{
+				new Thread((ThreadStart)delegate
+				{
+					using (SoundPlayer soundPlayer = new SoundPlayer(SoundFileName))
+					{
+						soundPlayer.PlaySync();
+					}
+				}).Start();
+				feedOut = false;
+				tickCount = 0;
+				g.targetPos = targetVector + new Vector2(20f, -20f);
+			}
+		}
+		else
+		{
+			API.Goose.setTaskRoaming.Invoke(g);
+			API.Goose.setSpeed.Invoke(g, (GooseEntity.SpeedTiers)2);
+			g.targetPos = targetVector;
+		}
+	}
 }
